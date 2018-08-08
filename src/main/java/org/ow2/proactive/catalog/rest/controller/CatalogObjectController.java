@@ -103,11 +103,11 @@ public class CatalogObjectController {
     @ResponseStatus(HttpStatus.CREATED)
     public CatalogObjectMetadataList create(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName,
-            @ApiParam(value = "Name of the object or empty when a ZIP archive is uploaded (All objects inside the archive are stored inside the catalog).") @RequestParam(required = false) Optional<String> name,
-            @ApiParam(value = "Kind of the new object", required = true) @RequestParam String kind,
-            @ApiParam(value = "Commit message", required = true) @RequestParam String commitMessage,
-            @ApiParam(value = "The content type of CatalogRawObject - MIME type", required = true) @RequestParam String objectContentType,
+            @PathVariable("bucketName") String bucketName,
+            @ApiParam(value = "Name of the object or empty when a ZIP archive is uploaded (All objects inside the archive are stored inside the catalog).") @RequestParam(value = "name", required = false) Optional<String> name,
+            @ApiParam(value = "Kind of the new object", required = true) @RequestParam(value = "kind") String kind,
+            @ApiParam(value = "Commit message", required = true) @RequestParam(value = "commitMessage") String commitMessage,
+            @ApiParam(value = "The content type of CatalogRawObject - MIME type", required = true) @RequestParam(value = "objectContentType") String objectContentType,
             @ApiParam(value = "The content of CatalogRawObject", required = true) @RequestPart(value = "file") MultipartFile file)
             throws IOException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
@@ -153,7 +153,7 @@ public class CatalogObjectController {
     @ResponseStatus(HttpStatus.OK)
     public CatalogObjectMetadata updateObjectMetadata(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name,
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name,
             @ApiParam(value = "The new kind of an object", required = false) @RequestParam(value = "kind", required = false) Optional<String> kind,
             @ApiParam(value = "The new content type of an object - MIME type", required = false) @RequestParam(value = "contentType", required = false) Optional<String> contentType)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
@@ -171,8 +171,9 @@ public class CatalogObjectController {
     @RequestMapping(value = REQUEST_API_QUERY + "/{name}", method = GET)
     public CatalogObjectMetadata get(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name) throws MalformedURLException,
-            UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
+            throws MalformedURLException, UnsupportedEncodingException, NotAuthenticatedException,
+            AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
@@ -192,7 +193,7 @@ public class CatalogObjectController {
     @RequestMapping(value = REQUEST_API_QUERY + "/{name}/raw", method = GET, produces = MediaType.ALL_VALUE)
     public ResponseEntity<String> getRaw(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name)
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
@@ -211,9 +212,9 @@ public class CatalogObjectController {
     @RequestMapping(value = REQUEST_API_QUERY, method = GET)
     public ResponseEntity<List<CatalogObjectMetadata>> list(
             @ApiParam(value = "sessionID") @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName,
-            @ApiParam(value = "Filter according to kind.") @RequestParam(required = false) Optional<String> kind,
-            @ApiParam(value = "Filter according to content type.") @RequestParam(required = false) Optional<String> contentType,
+            @PathVariable("bucketName") String bucketName,
+            @ApiParam(value = "Filter according to kind.") @RequestParam(value = "kind", required = false) Optional<String> kind,
+            @ApiParam(value = "Filter according to content type.") @RequestParam(value = "contentType", required = false) Optional<String> contentType,
             @ApiParam(value = "Give a list of name separated by comma to get them in an archive", allowMultiple = true, type = "string") @RequestParam(value = "name", required = false) Optional<List<String>> names,
             HttpServletResponse response)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
@@ -279,7 +280,7 @@ public class CatalogObjectController {
     @RequestMapping(value = REQUEST_API_QUERY + "/{name}", method = DELETE)
     public CatalogObjectMetadata delete(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name)
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);

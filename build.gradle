@@ -16,6 +16,7 @@ buildscript {
         classpath 'org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.5.0'
         classpath "io.spring.gradle:dependency-management-plugin:0.3.0.RELEASE"
         classpath "org.sonarsource.scanner.gradle:sonarqube-gradle-plugin:2.6.1"
+    classpath 'com.bmuschko:gradle-clover-plugin:2.2.1'
     }
 
     dependencies {
@@ -24,6 +25,7 @@ buildscript {
     }
 }
 
+apply plugin: 'com.bmuschko.clover'
 apply plugin: 'project-report'
 apply plugin: 'spring-boot'
 apply plugin: 'com.github.kt3k.coveralls'
@@ -144,6 +146,7 @@ dependencyManagement {
 
 dependencies {
     antlr 'org.antlr:antlr4'
+    clover 'org.openclover:clover:4.2.0'
 
     compile 'org.apache.tika:tika-core:1.18'
     compile 'commons-fileupload:commons-fileupload'
@@ -224,6 +227,9 @@ test {
 }
 
 task integrationTest(type: Test) {
+
+    dependsOn test
+
     testClassesDir = sourceSets.integrationTest.output.classesDir
     classpath = sourceSets.integrationTest.runtimeClasspath
     classpath += sourceSets.test.runtimeClasspath
@@ -313,4 +319,13 @@ idea {
                 configurations.integrationTestRuntime
         ]
     }
+}
+
+clover {
+
+       report {
+           html = true
+           pdf = true
+       }
+
 }

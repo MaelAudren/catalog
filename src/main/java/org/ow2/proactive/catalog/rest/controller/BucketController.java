@@ -103,7 +103,7 @@ public class BucketController {
     @ResponseStatus(HttpStatus.OK)
     public BucketMetadata getMetadata(
             @SuppressWarnings("DefaultAnnotationParam") @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName) throws NotAuthenticatedException, AccessDeniedException {
+            @PathVariable("bucketName") String bucketName) throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
@@ -152,7 +152,7 @@ public class BucketController {
     @ResponseStatus(HttpStatus.OK)
     public BucketMetadata delete(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName) throws NotAuthenticatedException, AccessDeniedException {
+            @PathVariable("bucketName") String bucketName) throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
