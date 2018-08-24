@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 /**
  * This Exception is thrown when a DELETE request for bucket has been
- * received but such a Bucket is not empty (name + owner)
+ * received but such a Bucket is not empty (bucketName + owner)
  * The HTTP status is 403, 'Forbidden"
  *
  * @author ActiveEon Team
@@ -39,8 +39,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 @ResponseStatus(value = HttpStatus.FORBIDDEN)
 public class DeleteNonEmptyBucketException extends RuntimeException {
 
-    public DeleteNonEmptyBucketException() {
-        super("Forbidden to delete the non empty bucket");
+    public DeleteNonEmptyBucketException(String bucketName) {
+        super("Forbidden to delete the non empty bucket: " + bucketName);
     }
 
     public DeleteNonEmptyBucketException(Throwable cause) {

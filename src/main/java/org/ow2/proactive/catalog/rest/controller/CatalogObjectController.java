@@ -30,14 +30,11 @@ import static org.springframework.web.bind.annotation.RequestMethod.GET;
 import static org.springframework.web.bind.annotation.RequestMethod.POST;
 import static org.springframework.web.bind.annotation.RequestMethod.PUT;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.net.URLDecoder;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -47,14 +44,12 @@ import org.ow2.proactive.catalog.dto.CatalogRawObject;
 import org.ow2.proactive.catalog.service.CatalogObjectService;
 import org.ow2.proactive.catalog.service.RestApiAccessService;
 import org.ow2.proactive.catalog.service.exception.AccessDeniedException;
-import org.ow2.proactive.catalog.service.exception.CatalogObjectNotFoundException;
 import org.ow2.proactive.catalog.service.exception.NotAuthenticatedException;
-import org.ow2.proactive.catalog.service.exception.RevisionNotFoundException;
 import org.ow2.proactive.catalog.util.ArchiveManagerHelper.ZipArchiveContent;
 import org.ow2.proactive.catalog.util.LinkUtil;
+import org.ow2.proactive.catalog.util.RawObjectResponseCreator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -64,13 +59,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
-import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import io.swagger.annotations.ApiImplicitParam;
-import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import io.swagger.annotations.ApiResponse;
@@ -83,7 +75,7 @@ import lombok.extern.log4j.Log4j2;
  */
 @RestController
 @Log4j2
-@RequestMapping(value = "/buckets/{bucketId}/resources")
+@RequestMapping(value = "/buckets/{bucketName}/resources")
 public class CatalogObjectController {
 
     @Autowired
@@ -91,6 +83,9 @@ public class CatalogObjectController {
 
     @Autowired
     private RestApiAccessService restApiAccessService;
+
+    @Autowired
+    private RawObjectResponseCreator rawObjectResponseCreator;
 
     private static final String ZIP_CONTENT_TYPE = "application/zip";
 
@@ -104,35 +99,35 @@ public class CatalogObjectController {
     @ResponseStatus(HttpStatus.CREATED)
     public CatalogObjectMetadataList create(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId,
+            @PathVariable("bucketName") String bucketName,
             @ApiParam(value = "Name of the object or empty when a ZIP archive is uploaded (All objects inside the archive are stored inside the catalog).") @RequestParam(value = "name", required = false) Optional<String> name,
             @ApiParam(value = "Kind of the new object") @RequestParam("kind") String kind,
             @ApiParam(value = "Commit message") @RequestParam("commitMessage") String commitMessage,
-            @ApiParam(value = "The content type of CatalogRawObject") @RequestParam("contentType") String contentType,
+            @ApiParam(value = "The content type of CatalogRawObject") @RequestParam("objectContentType") String objectContentType,
             @RequestPart(value = "file") MultipartFile file)
+
             throws IOException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
         if (name.isPresent()) {
-            CatalogObjectMetadata catalogObject = catalogObjectService.createCatalogObject(bucketId,
+            CatalogObjectMetadata catalogObject = catalogObjectService.createCatalogObject(bucketName,
                                                                                            name.get(),
                                                                                            kind,
                                                                                            commitMessage,
-                                                                                           contentType,
+                                                                                           objectContentType,
                                                                                            file.getBytes());
-            catalogObject.add(LinkUtil.createLink(catalogObject.getBucketId(), catalogObject.getName()));
+            catalogObject.add(LinkUtil.createLink(bucketName, catalogObject.getName()));
 
             return new CatalogObjectMetadataList(catalogObject);
         } else {
-            List<CatalogObjectMetadata> catalogObjects = catalogObjectService.createCatalogObjects(bucketId,
+            List<CatalogObjectMetadata> catalogObjects = catalogObjectService.createCatalogObjects(bucketName,
                                                                                                    kind,
                                                                                                    commitMessage,
-                                                                                                   contentType,
                                                                                                    file.getBytes());
 
             for (CatalogObjectMetadata catalogObject : catalogObjects) {
-                catalogObject.add(LinkUtil.createLink(catalogObject.getBucketId(), catalogObject.getName()));
+                catalogObject.add(LinkUtil.createLink(bucketName, catalogObject.getName()));
             }
 
             return new CatalogObjectMetadataList(catalogObjects);
@@ -144,99 +139,64 @@ public class CatalogObjectController {
                             @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied") })
     @RequestMapping(value = "/{name}", method = GET)
-    public ResponseEntity<?> get(
+    public ResponseEntity<CatalogObjectMetadata> get(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name) throws MalformedURLException,
-            UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
+            throws MalformedURLException, UnsupportedEncodingException, NotAuthenticatedException,
+            AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
 
-        String decodedName = URLDecoder.decode(name, "UTF-8");
-        try {
-            CatalogObjectMetadata metadata = catalogObjectService.getCatalogObjectMetadata(bucketId, decodedName);
-            metadata.add(LinkUtil.createLink(metadata.getBucketId(), metadata.getName()));
-            metadata.add(LinkUtil.createRelativeLink(metadata.getBucketId(), metadata.getName()));
-            return ResponseEntity.ok(metadata);
-        } catch (CatalogObjectNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e);
-        }
-
+        CatalogObjectMetadata metadata = catalogObjectService.getCatalogObjectMetadata(bucketName, name);
+        metadata.add(LinkUtil.createLink(bucketName, metadata.getName()));
+        metadata.add(LinkUtil.createRelativeLink(bucketName, metadata.getName()));
+        return ResponseEntity.ok(metadata);
     }
 
-    @ApiOperation(value = "Gets the raw content of a last revision of a catalog object")
-    @ApiResponses(value = { @ApiResponse(code = 404, message = "Bucket, catalog object or catalog object revision not found"),
+    @ApiOperation(value = "Gets the raw content of the last revision of a catalog object")
+    @ApiResponses(value = { @ApiResponse(code = 200, message = "Ok"),
                             @ApiResponse(code = 401, message = "User not authenticated"),
-                            @ApiResponse(code = 403, message = "Permission denied") })
+                            @ApiResponse(code = 403, message = "Permission denied"),
+                            @ApiResponse(code = 404, message = "Bucket, catalog object or catalog object revision not found") })
 
-    @RequestMapping(value = "/{name}/raw", method = GET)
-    public ResponseEntity<InputStreamResource> getRaw(
+    @RequestMapping(value = "/{name}/raw", method = GET, produces = MediaType.ALL_VALUE)
+    public ResponseEntity<String> getRaw(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name)
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
+
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
 
-        String decodedName = URLDecoder.decode(name, "UTF-8");
-
-        try {
-            CatalogRawObject rawObject = catalogObjectService.getCatalogRawObject(bucketId, decodedName);
-
-            byte[] bytes = rawObject.getRawObject();
-
-            ResponseEntity.BodyBuilder responseBodyBuilder = ResponseEntity.ok().contentLength(bytes.length);
-
-            try {
-                MediaType mediaType = MediaType.valueOf(rawObject.getContentType());
-                responseBodyBuilder = responseBodyBuilder.contentType(mediaType);
-            } catch (org.springframework.http.InvalidMediaTypeException mimeEx) {
-                log.warn("The wrong content type for object: " + name + ", commitTime:" +
-                         rawObject.getCommitDateTime() + ", the contentType: " + rawObject.getContentType(), mimeEx);
-            }
-
-            return responseBodyBuilder.body(new InputStreamResource(new ByteArrayInputStream(bytes)));
-        } catch (CatalogObjectNotFoundException e) {
-            log.error("CatalogObject not found ", e);
-            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        }
+        CatalogRawObject rawObject = catalogObjectService.getCatalogRawObject(bucketName, name);
+        return rawObjectResponseCreator.createRawObjectResponse(rawObject);
 
     }
 
     @ApiOperation(value = "Lists catalog objects metadata", notes = "Returns catalog objects metadata associated to the latest revision.")
-    @ApiImplicitParams({ @ApiImplicitParam(name = "page", dataType = "integer", paramType = "query", value = "Results page you want to retrieve (0..N)"),
-                         @ApiImplicitParam(name = "size", dataType = "integer", paramType = "query", value = "Number of records per page."),
-                         @ApiImplicitParam(name = "sort", allowMultiple = true, dataType = "string", paramType = "query", value = "Sorting criteria in the format: property(,asc|desc). " +
-                                                                                                                                  "Default sort order is ascending. " + "Multiple sort criteria are supported.") })
     @ApiResponses(value = { @ApiResponse(code = 404, message = "Bucket not found"),
                             @ApiResponse(code = 206, message = "Missing object"),
                             @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied") })
     @RequestMapping(method = GET)
-    @ResponseBody
     public ResponseEntity<?> list(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId,
+            @PathVariable("bucketName") String bucketName,
             @ApiParam(value = "Filter according to kind.") @RequestParam(value = "kind", required = false) Optional<String> kind,
             @ApiParam(value = "Get given list in an archive") @RequestParam(value = "name", required = false) Optional<List<String>> names,
             HttpServletResponse response)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
 
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
 
         if (names.isPresent()) {
-            List<String> decodedNames = names.get().stream().map(name -> {
-                try {
-                    return URLDecoder.decode(name, "UTF-8");
-                } catch (UnsupportedEncodingException e) {
-                    return name;
-                }
-            }).collect(Collectors.toList());
 
-            ZipArchiveContent zipArchiveContent = catalogObjectService.getCatalogObjectsAsZipArchive(bucketId,
-                                                                                                     decodedNames);
+            ZipArchiveContent zipArchiveContent = catalogObjectService.getCatalogObjectsAsZipArchive(bucketName,
+                                                                                                     names.get());
 
             HttpStatus status;
             if (zipArchiveContent.isPartial()) {
@@ -256,18 +216,18 @@ public class CatalogObjectController {
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);
             }
-            return ResponseEntity.status(status).build();
+            return new ResponseEntity<>(status);
         } else {
             List<CatalogObjectMetadata> metadataList;
             if (kind.isPresent()) {
-                metadataList = catalogObjectService.listCatalogObjectsByKind(bucketId, kind.get());
+                metadataList = catalogObjectService.listCatalogObjectsByKind(bucketName, kind.get());
             } else {
-                metadataList = catalogObjectService.listCatalogObjects(bucketId);
+                metadataList = catalogObjectService.listCatalogObjects(bucketName);
             }
 
             for (CatalogObjectMetadata catalogObject : metadataList) {
-                catalogObject.add(LinkUtil.createLink(catalogObject.getBucketId(), catalogObject.getName()));
-                catalogObject.add(LinkUtil.createRelativeLink(catalogObject.getBucketId(), catalogObject.getName()));
+                catalogObject.add(LinkUtil.createLink(bucketName, catalogObject.getName()));
+                catalogObject.add(LinkUtil.createRelativeLink(bucketName, catalogObject.getName()));
             }
 
             return ResponseEntity.ok(metadataList);
@@ -281,18 +241,14 @@ public class CatalogObjectController {
     @RequestMapping(value = "/{name}", method = DELETE)
     public ResponseEntity<?> delete(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name)
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
 
-        String decodedName = URLDecoder.decode(name, "UTF-8");
-        try {
-            catalogObjectService.delete(bucketId, decodedName);
-        } catch (CatalogObjectNotFoundException e) {
-            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        }
+        catalogObjectService.delete(bucketName, name);
+
         return new ResponseEntity<>(HttpStatus.OK);
     }
 
@@ -301,23 +257,18 @@ public class CatalogObjectController {
                             @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied") })
     @RequestMapping(value = "/{name}", method = PUT)
-    public ResponseEntity<?> restore(
+    public ResponseEntity<CatalogObjectMetadata> restore(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name,
-            @RequestParam(value = "commitTime", required = true) Long commitTime)
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name,
+            @RequestParam(value = "commitTimeRaw", required = true) Long commitTimeRaw)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
-        String decodedName = URLDecoder.decode(name, "UTF-8");
-        try {
-            CatalogObjectMetadata catalogObjectMetadata = catalogObjectService.restore(bucketId,
-                                                                                       decodedName,
-                                                                                       commitTime);
-            return ResponseEntity.ok(catalogObjectMetadata);
-        } catch (RevisionNotFoundException e) {
-            return ResponseEntity.notFound().build();
-        }
+
+        CatalogObjectMetadata catalogObjectMetadata = catalogObjectService.restore(bucketName, name, commitTimeRaw);
+        return ResponseEntity.ok(catalogObjectMetadata);
+
     }
 
 }

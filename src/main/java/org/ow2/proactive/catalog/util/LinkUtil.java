@@ -25,10 +25,10 @@
  */
 package org.ow2.proactive.catalog.util;
 
-import static org.springframework.hateoas.mvc.ControllerLinkBuilder.linkTo;
 import static org.springframework.hateoas.mvc.ControllerLinkBuilder.methodOn;
 
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.net.URLEncoder;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -38,7 +38,9 @@ import org.ow2.proactive.catalog.rest.controller.CatalogObjectRevisionController
 import org.ow2.proactive.catalog.service.exception.AccessDeniedException;
 import org.ow2.proactive.catalog.service.exception.NotAuthenticatedException;
 import org.springframework.hateoas.Link;
+import org.springframework.hateoas.core.LinkBuilderSupport;
 import org.springframework.hateoas.mvc.ControllerLinkBuilder;
+import org.springframework.web.util.UriComponents;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -53,22 +55,21 @@ public class LinkUtil {
     /**
      * This is used to generate the absolute URL of the given object revision based on the service domain.
      *
-     * @param bucketId The id of the bucket holding this object
+     * @param bucketName The name of the bucket holding this object
      * @param name The name of the object which is the identifier of the object
      * @param commitTime The commit time of the object which is also the identifier of this revision
      * @return a <code>Link</code> referencing the given object's revision raw content
      */
-    public static Link createLink(Long bucketId, String name, LocalDateTime commitTime)
+    public static Link createLink(String bucketName, String name, LocalDateTime commitTime)
             throws NotAuthenticatedException, AccessDeniedException {
         try {
             long epochMilli = commitTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-            ControllerLinkBuilder controllerLinkBuilder = linkTo(methodOn(CatalogObjectRevisionController.class).getRaw(null,
-                                                                                                                        bucketId,
-                                                                                                                        URLEncoder.encode(name,
-                                                                                                                                          "UTF-8"),
-                                                                                                                        epochMilli));
+            String absoluteLink = linkTo(methodOn(CatalogObjectRevisionController.class).getRaw(null,
+                                                                                                bucketName,
+                                                                                                encodeUrl(name),
+                                                                                                epochMilli));
 
-            return new Link(controllerLinkBuilder.toString()).withRel("content");
+            return new Link(absoluteLink).withRel("content");
         } catch (UnsupportedEncodingException e) {
             log.error("{} cannot be encoded", name, e);
         }
@@ -78,18 +79,19 @@ public class LinkUtil {
     /**
      * This is used to generate the absolute URL of the given object based on the service domain.
      *
-     * @param bucketId The id of the bucket holding this object
+     * @param bucketName The name of the bucket holding this object
      * @param name The name of the object which is the identifier of the object
      * @return a <code>Link</code> referencing the given object's raw content
      */
-    public static Link createLink(Long bucketId, String name) throws NotAuthenticatedException, AccessDeniedException {
+    public static Link createLink(String bucketName, String name)
+            throws NotAuthenticatedException, AccessDeniedException {
         try {
-            ControllerLinkBuilder controllerLinkBuilder = linkTo(methodOn(CatalogObjectController.class).getRaw(null,
-                                                                                                                bucketId,
-                                                                                                                URLEncoder.encode(name,
-                                                                                                                                  "UTF-8")));
+            String absoluteLink = linkTo(methodOn(CatalogObjectController.class).getRaw(null,
+                                                                                        bucketName,
+                                                                                        encodeUrl(name)
 
-            return new Link(controllerLinkBuilder.toString()).withRel("content");
+            ));
+            return new Link(absoluteLink).withRel("content");
         } catch (UnsupportedEncodingException e) {
             log.error("{} cannot be encoded", name, e);
         }
@@ -100,17 +102,17 @@ public class LinkUtil {
      * This is used to generate the relative URL of the given object revision.
      * The URL will only contain the path <code>buckets/../resources/../revisions/../raw</code>.
      *
-     * @param bucketId The id of the bucket holding this object
+     * @param bucketName The id of the bucket holding this object
      * @param objectName The name of the object which is the identifier of the object
      * @param commitTime The commit time of the object which is also the identifier of this revision
      * @return a <code>Link</code> referencing the given object's revision raw content
      */
-    public static Link createRelativeLink(Long bucketId, String objectName, LocalDateTime commitTime) {
+    public static Link createRelativeLink(String bucketName, String objectName, LocalDateTime commitTime) {
         Link link = null;
         try {
             long epochMilli = commitTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-            link = new Link("buckets/" + bucketId + "/resources/" + URLEncoder.encode(objectName, "UTF-8") +
-                            "/revisions/" + epochMilli).withRel("relative");
+            link = new Link("buckets/" + bucketName + "/resources/" + encodeUrl(objectName) + "/revisions/" +
+                            epochMilli).withRel("relative");
 
         } catch (UnsupportedEncodingException e) {
             log.error("{} cannot be encoded", objectName, e);
@@ -122,19 +124,62 @@ public class LinkUtil {
      * This is used to generate the relative URL of the given object.
      * The URL will only contain the path <code>buckets/../resources/../raw</code>.
      *
-     * @param bucketId The id of the bucket holding this object
-     * @param objectName The name of the object which is the identifier of the object
+     * @param bucketName The id of the bucket holding this object
+     * @param objectName The nokame of the object which is the identifier of the object
      * @return a <code>Link</code> referencing the given object's raw content
      */
-    public static Link createRelativeLink(Long bucketId, String objectName) {
+    public static Link createRelativeLink(String bucketName, String objectName) {
         Link link = null;
         try {
-            link = new Link("buckets/" + bucketId + "/resources/" +
-                            URLEncoder.encode(objectName, "UTF-8")).withRel("relative");
+            link = new Link("buckets/" + bucketName + "/resources/" + encodeUrl(objectName)).withRel("relative");
 
         } catch (UnsupportedEncodingException e) {
             log.error("{} cannot be encoded", objectName, e);
         }
         return link;
     }
+
+    // ControllerLinkBuilder.linkTo has a problem: it double-URL-encodes characters!
+    // e.g. ' ' (whitespace) is encoded to '%2525' instead of '%20'
+    // TODO remove hack when https://github.com/spring-projects/spring-hateoas/issues/40 is resolved
+    private static final Field uriComponentsField;
+    static {
+        try {
+            uriComponentsField = LinkBuilderSupport.class.getDeclaredField("uriComponents");
+            uriComponentsField.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Method is created to avoid double encoding
+     * @param invocationValue
+     * @return encoded link
+     */
+    public static String linkTo(Object invocationValue) {
+        try {
+            final UriComponents uriComponents = (UriComponents) uriComponentsField.get(ControllerLinkBuilder.linkTo(invocationValue));
+            return uriComponents.toString();
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static final String SPACE_ENCODED_AS_PERCENT_20 = "%20";
+
+    public static final String SPACE_ENCODED_AS_PLUS = "+";
+
+    /**
+     * The aim of this method to encode the specified value, so it can be decoded in the same way for Spring annotations: PathVariable and RequestParam
+     * According to specification:
+     * '+' is accepted by RequestParam as space. In case of PathVariable, '+' is accepted as '+'
+     * @param valueToEncode
+     * @return the encoded string that will be compliant with REST API requests
+     * @throws UnsupportedEncodingException
+     */
+    private static String encodeUrl(String valueToEncode) throws UnsupportedEncodingException {
+        return URLEncoder.encode(valueToEncode, "UTF-8").replace(SPACE_ENCODED_AS_PLUS, SPACE_ENCODED_AS_PERCENT_20);
+    }
+
 }

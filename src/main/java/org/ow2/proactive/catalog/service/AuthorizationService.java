@@ -26,6 +26,7 @@
 package org.ow2.proactive.catalog.service;
 
 import org.ow2.proactive.catalog.service.model.AuthenticatedUser;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 
@@ -36,6 +37,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuthorizationService {
 
+    private final OwnerGroupStringHelper ownerGroupStringHelper;
+
+    @Autowired
+    public AuthorizationService(OwnerGroupStringHelper ownerGroupStringHelper) {
+        this.ownerGroupStringHelper = ownerGroupStringHelper;
+    }
+
     public boolean askUserAuthorizationByBucketOwner(AuthenticatedUser authenticatedUser, String bucketOwnerOrGroup) {
         if (authenticatedUser == null) {
             return false;
@@ -44,15 +52,7 @@ public class AuthorizationService {
             return true;
         }
 
-        String groupName = extractGroupFromBucketOwnerOrGroupString(bucketOwnerOrGroup);
-        return authenticatedUser.getGroups().contains(groupName) ||
-               BucketService.DEFAULT_BUCKET_OWNER.equals(groupName);
-    }
-
-    private String extractGroupFromBucketOwnerOrGroupString(String bucketOwnerOrGroup) {
-        if (bucketOwnerOrGroup.startsWith(BucketService.GROUP_PREFIX)) {
-            return bucketOwnerOrGroup.replace(BucketService.GROUP_PREFIX, "");
-        }
-        return bucketOwnerOrGroup;
+        String groupName = ownerGroupStringHelper.extractGroupFromBucketOwnerOrGroupString(bucketOwnerOrGroup);
+        return authenticatedUser.getGroups().contains(groupName);
     }
 }

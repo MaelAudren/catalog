@@ -34,7 +34,7 @@ import java.util.List;
 
 import org.ow2.proactive.catalog.dto.BucketMetadata;
 import org.ow2.proactive.catalog.service.BucketService;
-import org.ow2.proactive.catalog.service.GroupsWithPrefixRetriever;
+import org.ow2.proactive.catalog.service.OwnerGroupStringHelper;
 import org.ow2.proactive.catalog.service.RestApiAccessService;
 import org.ow2.proactive.catalog.service.exception.AccessDeniedException;
 import org.ow2.proactive.catalog.service.exception.BucketAlreadyExistingException;
@@ -72,11 +72,12 @@ public class BucketController {
     private RestApiAccessService restApiAccessService;
 
     @Autowired
-    private GroupsWithPrefixRetriever groupsWithPrefixRetriever;
+    private OwnerGroupStringHelper ownerGroupStringHelper;
 
     @Value("${pa.catalog.security.required.sessionid}")
     private boolean sessionIdRequired;
 
+    @SuppressWarnings("DefaultAnnotationParam")
     @ApiOperation(value = "Creates a new bucket")
     @ApiResponses(value = { @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied"), })
@@ -84,17 +85,18 @@ public class BucketController {
     @ResponseStatus(HttpStatus.CREATED)
     public BucketMetadata create(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @RequestParam(value = "name", required = true) String bucketName,
+            @ApiParam(value = "The unique name of the Bucket. /n " +
+                              "The name of bucket can be between 3 and 63 characters long, and can contain only lower-case characters, numbers, and dashes. /n" +
+                              "A bucket's name must start with a lowercase letter and cannot terminate with a dash") @RequestParam(value = "name", required = true) String bucketName,
             @ApiParam(value = "The name of the user that will own the Bucket", defaultValue = BucketService.DEFAULT_BUCKET_OWNER) @RequestParam(value = "owner", required = false, defaultValue = BucketService.DEFAULT_BUCKET_OWNER) String ownerName)
             throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, ownerName);
+            restApiAccessService.checkAccessBySessionIdForOwnerOrGroupAndThrowIfDeclined(sessionId, ownerName);
         }
         try {
             return bucketService.createBucket(bucketName, ownerName);
         } catch (DataIntegrityViolationException exception) {
-            throw new BucketAlreadyExistingException("The bucket named " + bucketName + " owned by " + ownerName +
-                                                     " already exist");
+            throw new BucketAlreadyExistingException(bucketName, ownerName);
         }
     }
 
@@ -102,14 +104,14 @@ public class BucketController {
     @ApiResponses(value = { @ApiResponse(code = 404, message = "Bucket not found"),
                             @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied"), })
-    @RequestMapping(value = "/{bucketId}", method = GET)
+    @RequestMapping(value = "/{bucketName}", method = GET)
     public BucketMetadata getMetadata(
-            @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") long bucketId) throws NotAuthenticatedException, AccessDeniedException {
+            @SuppressWarnings("DefaultAnnotationParam") @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
+            @PathVariable("bucketName") String bucketName) throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
-        return bucketService.getBucketMetadata(bucketId);
+        return bucketService.getBucketMetadata(bucketName);
     }
 
     @ApiOperation(value = "Lists the buckets")
@@ -122,12 +124,13 @@ public class BucketController {
             @ApiParam(value = "The kind of objects that buckets must contain") @RequestParam(value = "kind", required = false) String kind)
             throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            RestApiAccessResponse restApiAccessResponse = restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId,
-                                                                                                                        ownerName);
+            RestApiAccessResponse restApiAccessResponse = restApiAccessService.checkAccessBySessionIdForOwnerOrGroupAndThrowIfDeclined(sessionId,
+                                                                                                                                       ownerName);
             List<String> groups;
             if (ownerName == null) {
-                groups = groupsWithPrefixRetriever.getGroupsWithPrefixFromGroupList(restApiAccessResponse.getAuthenticatedUser()
-                                                                                                         .getGroups());
+                groups = ownerGroupStringHelper.getGroupsWithPrefixFromGroupList(restApiAccessResponse.getAuthenticatedUser()
+                                                                                                      .getGroups());
+                groups.add(BucketService.DEFAULT_BUCKET_OWNER);
             } else {
                 groups = Collections.singletonList(ownerName);
             }
@@ -145,19 +148,20 @@ public class BucketController {
         bucketService.cleanAllEmptyBuckets();
     }
 
+    @SuppressWarnings("DefaultAnnotationParam")
     @ApiOperation(value = "Delete an empty bucket", notes = "It's forbidden to delete a non-empty bucket. You need to delete manually all workflows in the bucket before.")
     @ApiResponses(value = { @ApiResponse(code = 404, message = "Bucket not found"),
                             @ApiResponse(code = 401, message = "User not authenticated"),
                             @ApiResponse(code = 403, message = "Permission denied"), })
-    @RequestMapping(value = "/{bucketId}", method = DELETE)
+    @RequestMapping(value = "/{bucketName}", method = DELETE)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ResponseEntity<?> delete(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable("bucketId") Long bucketId) throws NotAuthenticatedException, AccessDeniedException {
+            @PathVariable("bucketName") String bucketName) throws NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
-            restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
+            restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
         }
-        BucketMetadata deletedBucketMetadata = bucketService.deleteEmptyBucket(bucketId);
+        BucketMetadata deletedBucketMetadata = bucketService.deleteEmptyBucket(bucketName);
         return ResponseEntity.ok(deletedBucketMetadata);
     }
 }

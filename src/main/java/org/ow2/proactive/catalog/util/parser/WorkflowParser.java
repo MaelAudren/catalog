@@ -26,17 +26,21 @@
 package org.ow2.proactive.catalog.util.parser;
 
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
-import java.util.function.BiConsumer;
+import java.util.Objects;
 
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.events.XMLEvent;
 
-import org.ow2.proactive.catalog.repository.entity.KeyValueMetadataEntity;
+import org.ow2.proactive.catalog.repository.entity.KeyValueLabelMetadataEntity;
 
 import com.google.common.collect.ImmutableList;
+
+import lombok.NoArgsConstructor;
+import lombok.extern.log4j.Log4j2;
 
 
 /**
@@ -49,6 +53,8 @@ import com.google.common.collect.ImmutableList;
  *
  * @author ActiveEon Team
  */
+@Log4j2
+@NoArgsConstructor
 public final class WorkflowParser implements CatalogObjectParserInterface {
 
     private static final String JOB_NAME_KEY = "name";
@@ -61,7 +67,7 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
 
     private static final String ATTRIBUTE_JOB_PROJECT_NAME = "projectName";
 
-    private static final String ATTRIBUTE_GENERIC_INFORMATION_LABEL = "generic_information";
+    public static final String ATTRIBUTE_GENERIC_INFORMATION_LABEL = "generic_information";
 
     private static final String ATTRIBUTE_GENERIC_INFORMATION_NAME = "name";
 
@@ -72,6 +78,10 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
     private static final String ATTRIBUTE_VARIABLE_NAME = "name";
 
     private static final String ATTRIBUTE_VARIABLE_VALUE = "value";
+
+    private static final String ATTRIBUTE_VARIABLE_MODEL_LABEL = "variable_model";
+
+    private static final String ATTRIBUTE_VARIABLE_MODEL = "model";
 
     private static final String ELEMENT_GENERIC_INFORMATION = "genericInformation";
 
@@ -85,6 +95,12 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
 
     private static final String ELEMENT_VARIABLES = "variables";
 
+    private static final String GENERAL_LABEL = "General";
+
+    private static final String ELEMENT_JOB_DESCRIPTION = "description";
+
+    private static final String JOB_DESCRIPTION_KEY = "description";
+
     /*
      * Variables indicating which parts of the document have been parsed. Thanks to these
      * information, parsing can be stopped once required information have been extracted.
@@ -96,9 +112,11 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
 
     private boolean genericInformationHandled = false;
 
+    private boolean descriptionHandled = false;
+
     /* Below are instance variables containing values which are extracted */
 
-    private ImmutableList<KeyValueMetadataEntity> keyValueMap;
+    private ImmutableList<KeyValueLabelMetadataEntity> keyValueMap;
 
     private static final class XmlInputFactoryLazyHolder {
 
@@ -106,15 +124,12 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
 
     }
 
-    public WorkflowParser() {
-    }
-
-    public List<KeyValueMetadataEntity> parse(InputStream inputStream) throws XMLStreamException {
+    public List<KeyValueLabelMetadataEntity> parse(InputStream inputStream) throws XMLStreamException {
 
         XMLStreamReader xmlStreamReader = XmlInputFactoryLazyHolder.INSTANCE.createXMLStreamReader(inputStream);
         int eventType;
 
-        ImmutableList.Builder<KeyValueMetadataEntity> keyValueMapBuilder = ImmutableList.builder();
+        ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder = ImmutableList.builder();
         boolean isTaskFlow = false;
         try {
             while (xmlStreamReader.hasNext() && !allElementHandled()) {
@@ -141,9 +156,16 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
                                     handleVariableElement(keyValueMapBuilder, xmlStreamReader);
                                 }
                                 break;
+                            case ELEMENT_JOB_DESCRIPTION:
+                                if (!isTaskFlow) {
+                                    handleDescriptionElement(keyValueMapBuilder, xmlStreamReader);
+                                }
+                                break;
+                            default: // all the other workflow tags should be ignored for parsing
+                                break;
                         }
-
                         break;
+
                     case XMLEvent.END_ELEMENT:
                         elementLocalPart = xmlStreamReader.getName().getLocalPart();
 
@@ -161,8 +183,11 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
                                     this.variablesHandled = true;
                                 }
                                 break;
-
+                            default: // all the other workflow tags should be ignored for parsing
+                                break;
                         }
+                        break;
+
                     default:
                         break;
                 }
@@ -176,69 +201,110 @@ public final class WorkflowParser implements CatalogObjectParserInterface {
         }
     }
 
-    private void handleGenericInformationElement(ImmutableList.Builder<KeyValueMetadataEntity> keyValueMapBuilder,
+    private void handleGenericInformationElement(ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder,
             XMLStreamReader xmlStreamReader) {
         handleElementWithMultipleValues(keyValueMapBuilder,
                                         ATTRIBUTE_GENERIC_INFORMATION_LABEL,
                                         ATTRIBUTE_GENERIC_INFORMATION_NAME,
                                         ATTRIBUTE_GENERIC_INFORMATION_VALUE,
-                                        xmlStreamReader);
+                                        xmlStreamReader,
+                                        true);
     }
 
-    private void handleJobElement(ImmutableList.Builder<KeyValueMetadataEntity> keyValueMapBuilder,
+    private void handleJobElement(ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder,
             XMLStreamReader xmlStreamReader) {
-        iterateOverAttributes((attributeName, attributeValue) -> {
-            if (attributeName.equals(ATTRIBUTE_JOB_NAME)) {
-                keyValueMapBuilder.add(new KeyValueMetadataEntity(JOB_NAME_KEY, attributeValue, JOB_AND_PROJECT_LABEL));
-            } else if (attributeName.equals(ATTRIBUTE_JOB_PROJECT_NAME)) {
-                keyValueMapBuilder.add(new KeyValueMetadataEntity(PROJECT_NAME_KEY,
-                                                                  attributeValue,
-                                                                  JOB_AND_PROJECT_LABEL));
-            }
-        }, xmlStreamReader);
+
+        List<String> strings = orderedSearch(xmlStreamReader, ATTRIBUTE_JOB_NAME, ATTRIBUTE_JOB_PROJECT_NAME);
+        String jobNameValue = strings.get(0);
+        String projectNameValue = strings.get(1);
+
+        if (checkIfNotNull(projectNameValue)) {
+            keyValueMapBuilder.add(new KeyValueLabelMetadataEntity(PROJECT_NAME_KEY,
+                                                                   projectNameValue,
+                                                                   JOB_AND_PROJECT_LABEL));
+        }
+        if (checkIfNotNull(jobNameValue)) {
+            keyValueMapBuilder.add(new KeyValueLabelMetadataEntity(JOB_NAME_KEY, jobNameValue, JOB_AND_PROJECT_LABEL));
+        }
         jobHandled = true;
     }
 
-    private void handleVariableElement(ImmutableList.Builder<KeyValueMetadataEntity> keyValueMapBuilder,
+    private void handleDescriptionElement(ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder,
             XMLStreamReader xmlStreamReader) {
+
+        String descriptionContent = "";
+        try {
+            descriptionContent = xmlStreamReader.getElementText(); //returns the text content of CDATA for description tag in our case
+        } catch (XMLStreamException e) {
+            log.error("Unable to parse the workflow description", e);
+            throw new RuntimeException("Unable to parse the workflow description", e);
+        }
+        keyValueMapBuilder.add(new KeyValueLabelMetadataEntity(JOB_DESCRIPTION_KEY, descriptionContent, GENERAL_LABEL));
+        descriptionHandled = true;
+    }
+
+    private void handleVariableElement(ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder,
+            XMLStreamReader xmlStreamReader) {
+
         handleElementWithMultipleValues(keyValueMapBuilder,
                                         ATTRIBUTE_VARIABLE_LABEL,
                                         ATTRIBUTE_VARIABLE_NAME,
                                         ATTRIBUTE_VARIABLE_VALUE,
-                                        xmlStreamReader);
+                                        xmlStreamReader,
+                                        true);
+        //for variables model
+        handleElementWithMultipleValues(keyValueMapBuilder,
+                                        ATTRIBUTE_VARIABLE_MODEL_LABEL,
+                                        ATTRIBUTE_VARIABLE_NAME,
+                                        ATTRIBUTE_VARIABLE_MODEL,
+                                        xmlStreamReader,
+                                        false);
+
     }
 
-    private void handleElementWithMultipleValues(ImmutableList.Builder<KeyValueMetadataEntity> keyValueMapBuilder,
+    private void handleElementWithMultipleValues(ImmutableList.Builder<KeyValueLabelMetadataEntity> keyValueMapBuilder,
             String attributeLabel, String attributeNameForKey, String attributeNameForValue,
-            XMLStreamReader xmlStreamReader) {
-        String[] key = new String[1];
-        String[] value = new String[1];
+            XMLStreamReader xmlStreamReader, boolean allowEmptyValues) {
+        List<String> strings = orderedSearch(xmlStreamReader, attributeNameForKey, attributeNameForValue);
 
-        iterateOverAttributes((attributeName, attributeValue) -> {
-            if (attributeName.equals(attributeNameForKey)) {
-                key[0] = attributeValue;
-            } else if (attributeName.equals(attributeNameForValue)) {
-                value[0] = attributeValue;
-            }
-        }, xmlStreamReader);
+        String key = strings.get(0);
+        String value = strings.get(1);
 
-        keyValueMapBuilder.add(new KeyValueMetadataEntity(key[0], value[0], attributeLabel));
-    }
-
-    private void iterateOverAttributes(BiConsumer<String, String> attribute, XMLStreamReader xmlStreamReader) {
-        for (int i = 0; i < xmlStreamReader.getAttributeCount(); i++) {
-            String attributeName = xmlStreamReader.getAttributeName(i).getLocalPart();
-            String attributeValue = xmlStreamReader.getAttributeValue(i);
-
-            attribute.accept(attributeName, attributeValue);
+        if (checkIfNotNull(key, value) && (allowEmptyValues || checkIfNotEmpty(key, value))) {
+            keyValueMapBuilder.add(new KeyValueLabelMetadataEntity(key, value, attributeLabel));
         }
     }
 
-    private boolean allElementHandled() {
-        return this.jobHandled && this.genericInformationHandled && this.variablesHandled;
+    private boolean checkIfNotNull(String... values) {
+        return Arrays.stream(values).noneMatch(Objects::isNull);
+
     }
 
-    private ImmutableList<KeyValueMetadataEntity> getKeyValueMap() {
+    private boolean checkIfNotEmpty(String... values) {
+        return Arrays.stream(values).noneMatch(String::isEmpty);
+
+    }
+
+    private List<String> orderedSearch(XMLStreamReader xmlStreamReader, String... names) {
+        List<String> listNames = Arrays.asList(names);
+        String[] result = new String[names.length];
+
+        for (int i = 0; i < xmlStreamReader.getAttributeCount(); i++) {
+            String attributeName = xmlStreamReader.getAttributeName(i).getLocalPart();
+            int index = listNames.indexOf(attributeName);
+            if (index != -1) {
+                result[index] = xmlStreamReader.getAttributeValue(i);
+            }
+        }
+
+        return Arrays.asList(result);
+    }
+
+    private boolean allElementHandled() {
+        return this.jobHandled && this.genericInformationHandled && this.variablesHandled && this.descriptionHandled;
+    }
+
+    private ImmutableList<KeyValueLabelMetadataEntity> getKeyValueMap() {
         return keyValueMap;
     }
 

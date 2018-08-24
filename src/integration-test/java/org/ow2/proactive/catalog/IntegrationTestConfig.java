@@ -33,15 +33,22 @@ import org.ow2.proactive.catalog.graphql.bean.argument.CatalogObjectWhereArgs;
 import org.ow2.proactive.catalog.graphql.fetcher.CatalogObjectFetcher;
 import org.ow2.proactive.catalog.graphql.handler.FilterHandler;
 import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectAndOrGroupFilterHandler;
-import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectBucketIdFilterHandler;
+import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectBucketNameFilterHandler;
 import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectKindFilterHandler;
 import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectMetadataFilterHandler;
 import org.ow2.proactive.catalog.graphql.handler.catalogobject.CatalogObjectNameFilterHandler;
 import org.ow2.proactive.catalog.repository.entity.CatalogObjectRevisionEntity;
 import org.ow2.proactive.catalog.service.BucketService;
 import org.ow2.proactive.catalog.service.CatalogObjectService;
+import org.ow2.proactive.catalog.service.GenericInformationAdder;
 import org.ow2.proactive.catalog.service.GraphqlService;
+import org.ow2.proactive.catalog.service.KeyValueLabelMetadataHelper;
+import org.ow2.proactive.catalog.service.OwnerGroupStringHelper;
+import org.ow2.proactive.catalog.service.WorkflowXmlManipulator;
 import org.ow2.proactive.catalog.util.ArchiveManagerHelper;
+import org.ow2.proactive.catalog.util.BucketNameValidator;
+import org.ow2.proactive.catalog.util.RawObjectResponseCreator;
+import org.ow2.proactive.catalog.util.RevisionCommitMessageBuilder;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.orm.jpa.EntityScan;
 import org.springframework.context.annotation.Bean;
@@ -97,8 +104,8 @@ public class IntegrationTestConfig {
     }
 
     @Bean
-    public FilterHandler<CatalogObjectWhereArgs, CatalogObjectRevisionEntity> catalogObjectBucketIdFilterHandler() {
-        return new CatalogObjectBucketIdFilterHandler();
+    public FilterHandler<CatalogObjectWhereArgs, CatalogObjectRevisionEntity> catalogObjectBucketNameFilterHandler() {
+        return new CatalogObjectBucketNameFilterHandler();
     }
 
     @Bean
@@ -131,4 +138,33 @@ public class IntegrationTestConfig {
         return new ArchiveManagerHelper();
     }
 
+    @Bean
+    public KeyValueLabelMetadataHelper keyValueMetadataHelper() {
+        return new KeyValueLabelMetadataHelper(new OwnerGroupStringHelper());
+    }
+
+    @Bean
+    public GenericInformationAdder genericInformationAdder() {
+        return new GenericInformationAdder();
+    }
+
+    @Bean
+    public WorkflowXmlManipulator workflowXmlManipulator() {
+        return new WorkflowXmlManipulator();
+    }
+
+    @Bean
+    public RawObjectResponseCreator rawObjectResponseCreator() {
+        return new RawObjectResponseCreator();
+    }
+
+    @Bean
+    public BucketNameValidator bucketNameValidator() {
+        return new BucketNameValidator();
+    }
+
+    @Bean
+    public RevisionCommitMessageBuilder revisionCommitMessageBuilder() {
+        return new RevisionCommitMessageBuilder();
+    }
 }

@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 /**
  * This Exception is thrown when a POST request for bucket creation has been
- * received but such a BucketEntity already exists (name + owner)
+ * received but such a BucketEntity already exists (bucketName + owner)
  * The HTTP status is 409 (Conflict because of duplication attempt)
  *
  * @author ActiveEon Team
@@ -40,7 +40,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 @ResponseStatus(value = HttpStatus.CONFLICT)
 public class BucketAlreadyExistingException extends DataIntegrityViolationException {
 
-    public BucketAlreadyExistingException(String message) {
-        super(message);
+    public BucketAlreadyExistingException(String bucketName, String ownerName) {
+        super("The bucket named " + bucketName + " owned by " + ownerName + " already exists");
     }
 }

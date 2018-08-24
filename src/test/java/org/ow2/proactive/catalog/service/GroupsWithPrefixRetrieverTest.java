@@ -26,9 +26,7 @@
 package org.ow2.proactive.catalog.service;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.mockito.Mockito.when;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -48,23 +46,22 @@ public class GroupsWithPrefixRetrieverTest {
 
     @InjectMocks
     @Spy
-    GroupsWithPrefixRetriever groupsWithPrefixRetriever;
+    private OwnerGroupStringHelper ownerGroupStringHelper;
 
     @Test(expected = NullPointerException.class)
     public void testThatNullThrowsNullPointerException() {
-        groupsWithPrefixRetriever.getGroupsWithPrefixFromGroupList(null);
+        ownerGroupStringHelper.getGroupsWithPrefixFromGroupList(null);
     }
 
     @Test
     public void testThatEmptyListReturnsEmptyList() {
-        assertThat(groupsWithPrefixRetriever.getGroupsWithPrefixFromGroupList(Collections.EMPTY_LIST)).isEmpty();
+        assertThat(ownerGroupStringHelper.getGroupsWithPrefixFromGroupList(Collections.emptyList())).isEmpty();
     }
 
     @Test
     public void testThatGroupPrefixIsAdded() {
-        when(groupsWithPrefixRetriever.getGroupPrefix()).thenReturn("PREFIX:");
-        List<String> result = groupsWithPrefixRetriever.getGroupsWithPrefixFromGroupList(Collections.singletonList("test"));
-        assertThat(result).contains("PREFIX:test");
+        List<String> result = ownerGroupStringHelper.getGroupsWithPrefixFromGroupList(Collections.singletonList("test"));
+        assertThat(result).contains(OwnerGroupStringHelper.GROUP_PREFIX + "test");
     }
 
 }

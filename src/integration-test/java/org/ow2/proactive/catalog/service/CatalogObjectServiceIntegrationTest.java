@@ -77,13 +77,13 @@ public class CatalogObjectServiceIntegrationTest {
     private long secondCommitTime;
 
     @Before
-    public void setup() throws IOException {
+    public void setup() throws IOException, InterruptedException {
         bucket = bucketService.createBucket("bucket", "CatalogObjectServiceIntegrationTest");
         keyValues = Collections.singletonList(new Metadata("key", "value", "type"));
 
         workflowAsByteArray = IntegrationTestUtil.getWorkflowAsByteArray("workflow.xml");
         workflowAsByteArrayUpdated = IntegrationTestUtil.getWorkflowAsByteArray("workflow-updated.xml");
-        CatalogObjectMetadata catalogObject = catalogObjectService.createCatalogObject(bucket.getMetaDataId(),
+        CatalogObjectMetadata catalogObject = catalogObjectService.createCatalogObject(bucket.getName(),
                                                                                        "catalog1",
                                                                                        "object",
                                                                                        "commit message",
@@ -92,14 +92,15 @@ public class CatalogObjectServiceIntegrationTest {
                                                                                        workflowAsByteArray);
         firstCommitTime = catalogObject.getCommitDateTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
-        catalogObject = catalogObjectService.createCatalogObjectRevision(bucket.getMetaDataId(),
+        Thread.sleep(1); // to be sure that a new revision time will be different from previous revision time
+        catalogObject = catalogObjectService.createCatalogObjectRevision(bucket.getName(),
                                                                          "catalog1",
                                                                          "commit message 2",
                                                                          keyValues,
                                                                          workflowAsByteArrayUpdated);
         secondCommitTime = catalogObject.getCommitDateTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
-        catalogObjectService.createCatalogObject(bucket.getMetaDataId(),
+        catalogObjectService.createCatalogObject(bucket.getName(),
                                                  "catalog2",
                                                  "object",
                                                  "commit message",
@@ -107,7 +108,7 @@ public class CatalogObjectServiceIntegrationTest {
                                                  keyValues,
                                                  workflowAsByteArray);
 
-        catalogObjectService.createCatalogObject(bucket.getMetaDataId(),
+        catalogObjectService.createCatalogObject(bucket.getName(),
                                                  "catalog3",
                                                  "workflow",
                                                  "commit message",
@@ -123,33 +124,44 @@ public class CatalogObjectServiceIntegrationTest {
 
     @Test
     public void testListCatalogObjectsInBucket() {
-        List<CatalogObjectMetadata> catalogObjecs = catalogObjectService.listCatalogObjects(bucket.getMetaDataId());
-        assertThat(catalogObjecs).hasSize(3);
+        List<CatalogObjectMetadata> catalogObjects = catalogObjectService.listCatalogObjects(bucket.getName());
+        assertThat(catalogObjects).hasSize(3);
     }
 
     @Test
     public void testListCatalogObjectsByKindInBucket() {
-        List<CatalogObjectMetadata> catalogObjecs = catalogObjectService.listCatalogObjectsByKind(bucket.getMetaDataId(),
-                                                                                                  "object");
-        assertThat(catalogObjecs).hasSize(2);
+        List<CatalogObjectMetadata> catalogObjects = catalogObjectService.listCatalogObjectsByKind(bucket.getName(),
+                                                                                                   "object");
+        assertThat(catalogObjects).hasSize(2);
 
-        catalogObjecs = catalogObjectService.listCatalogObjectsByKind(bucket.getMetaDataId(), "workflow");
-        assertThat(catalogObjecs).hasSize(1);
+        catalogObjectService.createCatalogObject(bucket.getName(),
+                                                 "catalog4",
+                                                 "workflow-general",
+                                                 "commit message",
+                                                 "application/xml",
+                                                 keyValues,
+                                                 workflowAsByteArray);
+
+        catalogObjects = catalogObjectService.listCatalogObjectsByKind(bucket.getName(), "workflow-general");
+        assertThat(catalogObjects).hasSize(1);
+
+        catalogObjects = catalogObjectService.listCatalogObjectsByKind(bucket.getName(), "WORKFLOW");
+        assertThat(catalogObjects).hasSize(2);
     }
 
     @Test
     public void testGetDefaultCatalogObject() {
-        CatalogObjectMetadata catalogObjectMetadata = catalogObjectService.getCatalogObjectMetadata(bucket.getMetaDataId(),
+        CatalogObjectMetadata catalogObjectMetadata = catalogObjectService.getCatalogObjectMetadata(bucket.getName(),
                                                                                                     "catalog1");
         assertThat(catalogObjectMetadata.getCommitMessage()).isEqualTo("commit message 2");
         assertThat(catalogObjectMetadata.getKind()).isEqualTo("object");
-        assertThat(catalogObjectMetadata.getMetadataList()).hasSize(1);
+        assertThat(catalogObjectMetadata.getMetadataList()).hasSize(3);
         assertThat(catalogObjectMetadata.getContentType()).isEqualTo("application/xml");
     }
 
     @Test
     public void testGetDefaultCatalogRawObject() {
-        CatalogRawObject rawObject = catalogObjectService.getCatalogRawObject(bucket.getMetaDataId(), "catalog1");
+        CatalogRawObject rawObject = catalogObjectService.getCatalogRawObject(bucket.getName(), "catalog1");
         assertThat(rawObject.getRawObject()).isNotNull();
         assertThat(rawObject.getRawObject()).isEqualTo(workflowAsByteArrayUpdated);
     }
@@ -157,7 +169,7 @@ public class CatalogObjectServiceIntegrationTest {
     @Test
     public void testListCatalogObjectRevisions() {
 
-        List<CatalogObjectMetadata> metadataList = catalogObjectService.listCatalogObjectRevisions(bucket.getMetaDataId(),
+        List<CatalogObjectMetadata> metadataList = catalogObjectService.listCatalogObjectRevisions(bucket.getName(),
                                                                                                    "catalog1");
         assertThat(metadataList).hasSize(2);
     }
@@ -165,7 +177,7 @@ public class CatalogObjectServiceIntegrationTest {
     @Test
     public void testGetCatalogObjectRevision() throws UnsupportedEncodingException {
 
-        CatalogObjectMetadata metadata = catalogObjectService.getCatalogObjectRevision(bucket.getMetaDataId(),
+        CatalogObjectMetadata metadata = catalogObjectService.getCatalogObjectRevision(bucket.getName(),
                                                                                        "catalog1",
                                                                                        firstCommitTime);
         assertThat(metadata.getCommitMessage()).isEqualTo("commit message");
@@ -174,7 +186,7 @@ public class CatalogObjectServiceIntegrationTest {
     @Test
     public void testGetCatalogObjectRevisionRaw() throws UnsupportedEncodingException {
 
-        CatalogRawObject rawObject = catalogObjectService.getCatalogObjectRevisionRaw(bucket.getMetaDataId(),
+        CatalogRawObject rawObject = catalogObjectService.getCatalogObjectRevisionRaw(bucket.getName(),
                                                                                       "catalog1",
                                                                                       firstCommitTime);
         assertThat(rawObject.getCommitMessage()).isEqualTo("commit message");

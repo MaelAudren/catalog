@@ -27,6 +27,7 @@ package org.ow2.proactive.catalog.rest.controller;
 
 import static com.jayway.restassured.RestAssured.given;
 import static com.jayway.restassured.RestAssured.when;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 
@@ -42,12 +43,18 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.ow2.proactive.catalog.Application;
 import org.ow2.proactive.catalog.repository.entity.BucketEntity;
+import org.ow2.proactive.catalog.service.exception.BucketAlreadyExistingException;
+import org.ow2.proactive.catalog.service.exception.BucketNameIsNotValidException;
+import org.ow2.proactive.catalog.service.exception.BucketNotFoundException;
+import org.ow2.proactive.catalog.service.exception.DeleteNonEmptyBucketException;
 import org.ow2.proactive.catalog.util.IntegrationTestUtil;
 import org.springframework.boot.test.SpringApplicationConfiguration;
 import org.springframework.boot.test.WebIntegrationTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.restassured.response.Response;
 
 
@@ -62,11 +69,13 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
 
     private static final String BUCKETS_RESOURCE = "/buckets";
 
-    private static final String BUCKET_RESOURCE = "/buckets/{bucketId}";
+    private static final String BUCKET_RESOURCE = "/buckets/{bucketName}";
 
-    private static final String CATALOG_OBJECTS_RESOURCE = "/buckets/{bucketId}/resources";
+    private static final String CATALOG_OBJECTS_RESOURCE = "/buckets/{bucketName}/resources";
 
-    private static final String CATALOG_OBJECT_RESOURCE = "/buckets/{bucketId}/resources/{name}";
+    private static final String CATALOG_OBJECT_RESOURCE = "/buckets/{bucketName}/resources/{name}";
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @After
     public void cleanup() {
@@ -93,6 +102,18 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
     }
 
     @Test
+    public void testCreateBucketWrongName() {
+        Response response = given().parameters("name", "bucket.Wrong.Name-", "bucket-owner", "bucketOwner")
+                                   .when()
+                                   .post(BUCKETS_RESOURCE);
+        response.then()
+                .assertThat()
+                .statusCode(HttpStatus.SC_BAD_REQUEST)
+                .body("error_message",
+                      equalTo(new BucketNameIsNotValidException("bucket.Wrong.Name-").getLocalizedMessage()));
+    }
+
+    @Test
     public void testCreateDuplicatedBucketSameUser() {
         final String ownerKey = "owner";
         final String bucketNameKey = "name";
@@ -107,12 +128,40 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
                .post(BUCKETS_RESOURCE)
                .then()
                .assertThat()
-               .statusCode(HttpStatus.SC_CONFLICT);
+               .statusCode(HttpStatus.SC_CONFLICT)
+               .body("error_message",
+                     equalTo(new BucketAlreadyExistingException(bucketNameValue, ownerValue).getLocalizedMessage()));
+    }
+
+    @Test
+    public void testCreateDuplicatedBucketNameDifferentUser() {
+        final String ownerKey = "owner";
+        final String bucketNameKey = "name";
+        final String ownerValue1 = "newowner1";
+        final String ownerValue2 = "newowner2";
+        final String bucketNameValue = "newbucket";
+        given().parameters(ownerKey, ownerValue1, bucketNameKey, bucketNameValue)
+               .post(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_CREATED);
+        given().parameters(ownerKey, ownerValue2, bucketNameKey, bucketNameValue)
+               .post(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_CONFLICT)
+               .body("error_message",
+                     equalTo(new BucketAlreadyExistingException(bucketNameValue, ownerValue2).getLocalizedMessage()));
     }
 
     @Test
     public void testGetBucketShouldBeNotFoundIfNonExistingId() {
-        given().pathParam("bucketId", 42L).get(BUCKET_RESOURCE).then().statusCode(HttpStatus.SC_NOT_FOUND);
+        given().pathParam("bucketName", "non-existing-bucket")
+               .get(BUCKET_RESOURCE)
+               .then()
+               .statusCode(HttpStatus.SC_NOT_FOUND)
+               .body("error_message",
+                     equalTo(new BucketNotFoundException("non-existing-bucket").getLocalizedMessage()));
     }
 
     @Test
@@ -129,9 +178,10 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
                                                                               "BucketResourceAssemblerTestUser"))
                                               .collect(Collectors.toList());
 
-        buckets.stream().forEach(bucket -> given().parameters("name", bucket.getName(), "owner", bucket.getOwner())
-                                                  .when()
-                                                  .post(BUCKETS_RESOURCE));
+        buckets.stream()
+               .forEach(bucket -> given().parameters("name", bucket.getBucketName(), "owner", bucket.getOwner())
+                                         .when()
+                                         .post(BUCKETS_RESOURCE));
 
         given().parameter("owner", "BucketResourceAssemblerTestUser")
                .get(BUCKETS_RESOURCE)
@@ -154,74 +204,15 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
     }
 
     @Test
-    public void testListOneBucketNameTwoOwners() {
-        final String bucketName = "TheBucketOfLove";
+    public void testListOneOwnerTwoBuckets() {
+        final String bucketName1 = "bucket-of-love";
+        final String bucketName2 = "bucket-of-pain";
         final String userAlice = "Alice";
-        final String userBob = "Bob";
-        given().parameters("name", bucketName, "owner", userAlice).when().post(BUCKETS_RESOURCE);
-        given().parameters("name", bucketName, "owner", userBob).when().post(BUCKETS_RESOURCE);
+        given().parameters("name", bucketName1, "owner", userAlice).when().post(BUCKETS_RESOURCE);
+        given().parameters("name", bucketName2, "owner", userAlice).when().post(BUCKETS_RESOURCE);
 
-        // list alice -> should return one only
+        // list alice buckets -> should return buckets
         given().param("owner", userAlice)
-               .get(BUCKETS_RESOURCE)
-               .then()
-               .assertThat()
-               .statusCode(HttpStatus.SC_OK)
-               .body("", hasSize(1));
-
-        // list bob -> should return one only
-        given().param("owner", userBob)
-               .get(BUCKETS_RESOURCE)
-               .then()
-               .assertThat()
-               .statusCode(HttpStatus.SC_OK)
-               .body("", hasSize(1));
-    }
-
-    @Test
-    public void testListBucketsGivenKindAndEmptyBucket() throws UnsupportedEncodingException {
-        final String bucketName1 = "BucketWithObjectWorkflow";
-        final String bucketName2 = "EmptyBucket";
-        final String bucketNameWithSomeObjects = "BucketWithSomeObjects";
-        // Get bucket ID from response to create an object in it
-        Integer bucket1Id = given().parameters("name", bucketName1, "owner", "owner")
-                                   .when()
-                                   .post(BUCKETS_RESOURCE)
-                                   .then()
-                                   .extract()
-                                   .path("id");
-
-        given().parameters("name", bucketName2, "owner", "owner ").when().post(BUCKETS_RESOURCE);
-
-        // Add an object of kind "myobjectkind" into first bucket
-        given().pathParam("bucketId", bucket1Id)
-               .queryParam("kind", "myobjectkind")
-               .queryParam("name", "myobjectname")
-               .queryParam("commitMessage", "first commit")
-               .queryParam("contentType", "application/xml")
-               .multiPart(IntegrationTestUtil.getWorkflowFile("workflow.xml"))
-               .when()
-               .post(CATALOG_OBJECTS_RESOURCE);
-
-        Integer bucketWithSomeObjectsId = given().parameters("name", bucketNameWithSomeObjects, "owner", "owner")
-                                                 .when()
-                                                 .post(BUCKETS_RESOURCE)
-                                                 .then()
-                                                 .extract()
-                                                 .path("id");
-
-        // Add an object of kind "differentkind" into third bucket
-        given().pathParam("bucketId", bucketWithSomeObjectsId)
-               .queryParam("kind", "differentkind")
-               .queryParam("name", "myobjectname")
-               .queryParam("commitMessage", "first commit")
-               .queryParam("contentType", "application/xml")
-               .multiPart(IntegrationTestUtil.getWorkflowFile("workflow.xml"))
-               .when()
-               .post(CATALOG_OBJECTS_RESOURCE);
-
-        // list workflow -> should return one only
-        given().param("kind", "myobjectkind")
                .get(BUCKETS_RESOURCE)
                .then()
                .assertThat()
@@ -230,16 +221,133 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
     }
 
     @Test
+    public void testListBucketsGivenPrefixKindAndEmptyBucket() throws UnsupportedEncodingException {
+        final String bucketNameForMyObjects = "bucket-with-object-workflow";
+        final String bucketNameForEmpty = "empty-bucket";
+        final String bucketNameWithSomeObjects = "bucket-with-some-objects";
+        final String bucketNameForMyObjectsWithGeneralPrefix = "bucket-with-my-objects-general";
+        // Get bucket ID from response to create an object in it
+        String bucketIdWithMyObjects = IntegrationTestUtil.createBucket(bucketNameForMyObjects, "owner");
+        String bucketIdWithmyObjectsGeneral = IntegrationTestUtil.createBucket(bucketNameForMyObjectsWithGeneralPrefix,
+                                                                               "owner");
+
+        IntegrationTestUtil.createBucket(bucketNameForEmpty, "owner");
+
+        // Add an object of kind "my-object-kind" into specific bucket
+        IntegrationTestUtil.postObjectToBucket(bucketIdWithMyObjects,
+                                               "MY-objecT-Kind",
+                                               "myobjectname",
+                                               "first commit",
+                                               MediaType.APPLICATION_ATOM_XML_VALUE,
+                                               IntegrationTestUtil.getWorkflowFile("workflow.xml"));
+
+        // Add an object of kind "my-object-general" into specific bucket
+        IntegrationTestUtil.postObjectToBucket(bucketIdWithmyObjectsGeneral,
+                                               "My-oBJeCt-General",
+                                               "myobjectname",
+                                               "first commit",
+                                               MediaType.APPLICATION_ATOM_XML_VALUE,
+                                               IntegrationTestUtil.getWorkflowFile("workflow.xml"));
+
+        String bucketWithSomeObjectsId = IntegrationTestUtil.createBucket(bucketNameWithSomeObjects, "owner");
+
+        IntegrationTestUtil.postObjectToBucket(bucketWithSomeObjectsId,
+                                               "differentkind",
+                                               "myobjectname",
+                                               "first commit",
+                                               MediaType.APPLICATION_ATOM_XML_VALUE,
+                                               IntegrationTestUtil.getWorkflowFile("workflow.xml"));
+
+        // list buckets by specific kind -> should return one specified bucket and empty bucket
+        given().param("kind", "my-object-kind")
+               .get(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_OK)
+               .body("", hasSize(2));
+
+        // list buckets by prefix kind -> should return two buckets, matching kind pattern, and empty bucket
+        given().param("kind", "MY-Object")
+               .get(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_OK)
+               .body("", hasSize(3));
+    }
+
+    @Test
+    public void testListBucketsByOwnerIsInContainingKindAndEmptyBucket() throws UnsupportedEncodingException {
+        final String BucketAdminOwnerWorkflowKind = "bucket-admin-owner-workflow-kind";
+        final String BucketAdminOwnerEmptyBucket = "bucket-admin-owner-empty-bucket";
+        final String BucketAdminOwnerOtherKind = "bucket-admin-owner-other-kind";
+        final String BucketAdminOwnerMixedKind = "bucket-admin-owner-mixed-kind";
+        final String BucketUserOwnerWorkflowKind = "bucket-user-owner-workflow-kind";
+
+        final String adminOwner = "admin";
+        final String userOwner = "user";
+
+        String bucketAdminOwnerWorkflowKindId = IntegrationTestUtil.createBucket(BucketAdminOwnerWorkflowKind,
+                                                                                 adminOwner);
+        IntegrationTestUtil.createBucket(BucketAdminOwnerEmptyBucket, adminOwner);
+        String BucketAdminOwnerOtherKindId = IntegrationTestUtil.createBucket(BucketAdminOwnerOtherKind, adminOwner);
+        String BucketAdminOwnerMixedKindId = IntegrationTestUtil.createBucket(BucketAdminOwnerMixedKind, adminOwner);
+        String BucketUserOwnerWorkflowKindId = IntegrationTestUtil.createBucket(BucketUserOwnerWorkflowKind, userOwner);
+
+        IntegrationTestUtil.postDefaultWorkflowToBucket(bucketAdminOwnerWorkflowKindId);
+        IntegrationTestUtil.postObjectToBucket(BucketAdminOwnerOtherKindId,
+                                               "other kind",
+                                               "my workflow",
+                                               "first commit",
+                                               MediaType.APPLICATION_ATOM_XML_VALUE,
+                                               IntegrationTestUtil.getWorkflowFile("workflow.xml"));
+
+        IntegrationTestUtil.postDefaultWorkflowToBucket(BucketAdminOwnerMixedKindId);
+        IntegrationTestUtil.postObjectToBucket(BucketAdminOwnerMixedKindId,
+                                               "other kind",
+                                               "other object",
+                                               "first commit",
+                                               MediaType.APPLICATION_ATOM_XML_VALUE,
+                                               IntegrationTestUtil.getWorkflowFile("workflow.xml"));
+
+        IntegrationTestUtil.postDefaultWorkflowToBucket(BucketUserOwnerWorkflowKindId);
+
+        // list bucket with the given owner -> should return one only
+        given().param("owner", adminOwner)
+               .get(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_OK)
+               .body("", hasSize(4));
+
+        // list bucket with the given kind -> should return the specified buckets and empty buckets
+        given().param("kind", "workflow")
+               .get(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_OK)
+               .body("", hasSize(4));
+
+        // list bucket with the given owner and kind of objects inside bucket -> should return the specified buckets
+        given().param("kind", "workflow")
+               .param("owner", adminOwner)
+               .get(BUCKETS_RESOURCE)
+               .then()
+               .assertThat()
+               .statusCode(HttpStatus.SC_OK)
+               .body("", hasSize(3));
+    }
+
+    @Test
     public void testDeleteEmptyBucket() {
         // Get bucket ID from response to create an object in it
-        Integer bucketId = given().parameters("name", "bucketName", "owner", "owner")
-                                  .when()
-                                  .post(BUCKETS_RESOURCE)
-                                  .then()
-                                  .extract()
-                                  .path("id");
+        String bucketName = given().parameters("name", "bucket-name", "owner", "owner")
+                                   .when()
+                                   .post(BUCKETS_RESOURCE)
+                                   .then()
+                                   .extract()
+                                   .path("name");
 
-        given().pathParam("bucketId", bucketId)
+        given().pathParam("bucketName", bucketName)
                .when()
                .delete(BUCKET_RESOURCE)
                .then()
@@ -247,7 +355,7 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
                .statusCode(HttpStatus.SC_OK);
 
         // check that the bucket is really gone
-        given().pathParam("bucketId", bucketId)
+        given().pathParam("bucketName", bucketName)
                .when()
                .get(BUCKET_RESOURCE)
                .then()
@@ -257,35 +365,36 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
 
     @Test
     public void testDeleteNonEmptyBucket() throws IOException {
-        final String bucketName = "BucketWithObject";
+        final String bucketName = "bucket-with-object";
 
-        // Get bucket ID from response to create an object in it
-        Integer bucketId = given().parameters("name", bucketName, "owner", "owner")
-                                  .when()
-                                  .post(BUCKETS_RESOURCE)
-                                  .then()
-                                  .extract()
-                                  .path("id");
+        // Get bucket name from response to create an object in it
+        given().parameters("name", bucketName, "owner", "owner")
+               .when()
+               .post(BUCKETS_RESOURCE)
+               .then()
+               .extract()
+               .path("name");
 
         // Add an object of kind "workflow" into first bucket
-        given().pathParam("bucketId", bucketId)
+        given().pathParam("bucketName", bucketName)
                .queryParam("kind", "myobjectkind")
                .queryParam("name", "myTestName")
                .queryParam("commitMessage", "first commit")
-               .queryParam("contentType", "application/xml")
+               .queryParam("objectContentType", MediaType.APPLICATION_ATOM_XML_VALUE)
                .multiPart(IntegrationTestUtil.getWorkflowFile("workflow.xml"))
                .when()
                .post(CATALOG_OBJECTS_RESOURCE);
 
-        given().pathParam("bucketId", bucketId)
+        given().pathParam("bucketName", bucketName)
                .when()
                .delete(BUCKET_RESOURCE)
                .then()
                .assertThat()
-               .statusCode(HttpStatus.SC_FORBIDDEN);
+               .statusCode(HttpStatus.SC_FORBIDDEN)
+               .body("error_message", equalTo(new DeleteNonEmptyBucketException(bucketName).getLocalizedMessage()));
 
         // check that the bucket is still there
-        given().pathParam("bucketId", bucketId)
+        given().pathParam("bucketName", bucketName)
                .when()
                .get(BUCKET_RESOURCE)
                .then()
@@ -295,12 +404,13 @@ public class BucketControllerIntegrationTest extends AbstractRestAssuredTest {
 
     @Test
     public void testDeleteNonExistingBucket() {
-        given().pathParam("bucketId", 35434247)
+        given().pathParam("bucketName", "some-bucket")
                .when()
                .delete(BUCKET_RESOURCE)
                .then()
                .assertThat()
-               .statusCode(HttpStatus.SC_NOT_FOUND);
+               .statusCode(HttpStatus.SC_NOT_FOUND)
+               .body("error_message", equalTo(new BucketNotFoundException("some-bucket").getLocalizedMessage()));
     }
 
 }

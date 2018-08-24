@@ -25,36 +25,22 @@
  */
 package org.ow2.proactive.catalog.service;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import javax.annotation.PostConstruct;
 
 import org.apache.commons.lang3.StringUtils;
 import org.ow2.proactive.catalog.dto.BucketMetadata;
 import org.ow2.proactive.catalog.repository.BucketRepository;
 import org.ow2.proactive.catalog.repository.entity.BucketEntity;
+import org.ow2.proactive.catalog.service.exception.BucketNameIsNotValidException;
 import org.ow2.proactive.catalog.service.exception.BucketNotFoundException;
-import org.ow2.proactive.catalog.service.exception.DefaultCatalogObjectsFolderNotFoundException;
-import org.ow2.proactive.catalog.service.exception.DefaultRawCatalogObjectsFolderNotFoundException;
 import org.ow2.proactive.catalog.service.exception.DeleteNonEmptyBucketException;
-import org.ow2.proactive.catalog.util.CatalogObjectJSONParser;
-import org.ow2.proactive.catalog.util.CatalogObjectJSONParser.CatalogObjectData;
+import org.ow2.proactive.catalog.util.BucketNameValidator;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import com.google.common.io.ByteStreams;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -67,13 +53,7 @@ import lombok.extern.log4j.Log4j2;
 @Transactional
 public class BucketService {
 
-    public static final String GROUP_PREFIX = "GROUP:";
-
-    public static final String DEFAULT_BUCKET_OWNER = GROUP_PREFIX + "public-objects";
-
-    private static final String DEFAULT_OBJECTS_FOLDER = "/default-objects";
-
-    private static final String RAW_OBJECTS_FOLDER = "/raw-objects";
+    public static final String DEFAULT_BUCKET_OWNER = OwnerGroupStringHelper.GROUP_PREFIX + "public-objects";
 
     @Autowired
     private BucketRepository bucketRepository;
@@ -81,95 +61,27 @@ public class BucketService {
     @Autowired
     private CatalogObjectService catalogObjectService;
 
-    @Value("${pa.catalog.default.buckets}")
-    private String[] defaultBucketNames;
-
     @Autowired
-    private Environment environment;
-
-    @PostConstruct
-    public void init() throws Exception {
-        boolean isTestProfileEnabled = Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equals);
-
-        // We define the initial start by no existing buckets in the Catalog
-        // On initial start, we load the Catalog with predefined objects
-        if (!isTestProfileEnabled && bucketRepository.count() == 0) {
-            populateCatalog(defaultBucketNames, DEFAULT_OBJECTS_FOLDER, RAW_OBJECTS_FOLDER);
-        }
-    }
-
-    /**
-     * The Catalog can be populated with buckets and objects all at once.
-     *
-     * @param bucketNames The array of bucket names to create
-     * @param objectsFolder The folder that contains sub-folders of all objects to inject
-     * @throws SecurityException if the Catalog is not allowed to read or access the file
-     * @throws IOException if the file or folder could not be found or read properly
-     */
-    public void populateCatalog(String[] bucketNames, String objectsFolder, String rawObjectsFolder)
-            throws SecurityException, IOException {
-        for (String bucketName : bucketNames) {
-            final Long bucketId = bucketRepository.save(new BucketEntity(bucketName, DEFAULT_BUCKET_OWNER)).getId();
-            final URL folderResource = getClass().getResource(objectsFolder);
-            if (folderResource == null) {
-                throw new DefaultCatalogObjectsFolderNotFoundException();
-            }
-
-            final URL rawFolderResource = getClass().getResource(rawObjectsFolder);
-            if (rawFolderResource == null) {
-                throw new DefaultRawCatalogObjectsFolderNotFoundException();
-            }
-
-            final File bucketFolder = new File(folderResource.getPath() + File.separator + bucketName);
-            if (bucketFolder.isDirectory()) {
-                String[] wfs = bucketFolder.list();
-                Arrays.sort(wfs);
-                for (String object : wfs) {
-                    FileInputStream fisobject = null;
-                    try {
-                        File catalogObjectFile = new File(bucketFolder.getPath() + File.separator + object);
-                        CatalogObjectData objectData = CatalogObjectJSONParser.parseJSONFile(catalogObjectFile);
-
-                        File fobject = new File(rawFolderResource.getPath() + File.separator +
-                                                objectData.getObjectFileName());
-                        fisobject = new FileInputStream(fobject);
-                        byte[] bObject = ByteStreams.toByteArray(fisobject);
-                        catalogObjectService.createCatalogObject(bucketId,
-                                                                 objectData.getName(),
-                                                                 objectData.getKind(),
-                                                                 objectData.getCommitMessage(),
-                                                                 objectData.getContentType(),
-                                                                 Collections.emptyList(),
-                                                                 bObject);
-                    } finally {
-                        if (fisobject != null) {
-                            fisobject.close();
-                        }
-                    }
-                }
-            }
-        }
-    }
+    private BucketNameValidator bucketNameValidator;
 
     public BucketMetadata createBucket(String name) {
         return createBucket(name, DEFAULT_BUCKET_OWNER);
     }
 
     public BucketMetadata createBucket(String name, String owner) throws DataIntegrityViolationException {
+        if (!bucketNameValidator.checkBucketName(name)) {
+            throw new BucketNameIsNotValidException(name);
+        }
+
         BucketEntity bucket = new BucketEntity(name, owner);
 
         bucket = bucketRepository.save(bucket);
         return new BucketMetadata(bucket);
     }
 
-    public BucketMetadata getBucketMetadata(long id) {
-        BucketEntity bucket = bucketRepository.findOne(id);
-
-        if (bucket == null) {
-            throw new BucketNotFoundException();
-        }
-
-        return new BucketMetadata(bucket);
+    public BucketMetadata getBucketMetadata(String bucketName) {
+        BucketEntity bucketEntity = findBucketByNameAndCheck(bucketName);
+        return new BucketMetadata(bucketEntity);
     }
 
     public List<BucketMetadata> listBuckets(List<String> owners, String kind) {
@@ -177,14 +89,11 @@ public class BucketService {
             return Collections.emptyList();
         }
 
-        List<String> ownersAndDefaultOwner = new ArrayList<>(owners);
-        ownersAndDefaultOwner.add(DEFAULT_BUCKET_OWNER);
-
         List<BucketEntity> entities;
         if (!StringUtils.isEmpty(kind)) {
-            entities = bucketRepository.findByOwnerIsInContainingKind(ownersAndDefaultOwner, kind);
+            entities = bucketRepository.findByOwnerIsInContainingKind(owners, kind);
         } else {
-            entities = bucketRepository.findByOwnerIn(ownersAndDefaultOwner);
+            entities = bucketRepository.findByOwnerIn(owners);
         }
 
         log.info("Buckets size {}", entities.size());
@@ -193,8 +102,11 @@ public class BucketService {
 
     public List<BucketMetadata> listBuckets(String ownerName, String kind) {
         List<BucketEntity> entities;
+        List<String> owners = Collections.singletonList(ownerName);
 
-        if (!StringUtils.isEmpty(ownerName)) {
+        if (!StringUtils.isEmpty(ownerName) && !StringUtils.isEmpty(kind)) {
+            entities = bucketRepository.findByOwnerIsInContainingKind(owners, kind);
+        } else if (!StringUtils.isEmpty(ownerName)) {
             entities = bucketRepository.findByOwner(ownerName);
         } else if (!StringUtils.isEmpty(kind)) {
             entities = bucketRepository.findContainingKind(kind);
@@ -215,18 +127,25 @@ public class BucketService {
         bucketRepository.deleteAll();
     }
 
-    public BucketMetadata deleteEmptyBucket(long bucketId) {
-        BucketEntity bucket = bucketRepository.findBucketForUpdate(bucketId);
+    public BucketMetadata deleteEmptyBucket(String bucketName) {
+        BucketEntity bucket = bucketRepository.findBucketForUpdate(bucketName);
 
         if (bucket == null) {
-            throw new BucketNotFoundException();
+            throw new BucketNotFoundException(bucketName);
         }
 
         if (!bucket.getCatalogObjects().isEmpty()) {
-            throw new DeleteNonEmptyBucketException();
+            throw new DeleteNonEmptyBucketException(bucketName);
         }
-        bucketRepository.delete(bucketId);
+        bucketRepository.delete(bucket.getId());
         return new BucketMetadata(bucket);
     }
 
+    private BucketEntity findBucketByNameAndCheck(String bucketName) {
+        BucketEntity bucketEntity = bucketRepository.findOneByBucketName(bucketName);
+        if (bucketEntity == null) {
+            throw new BucketNotFoundException(bucketName);
+        }
+        return bucketEntity;
+    }
 }

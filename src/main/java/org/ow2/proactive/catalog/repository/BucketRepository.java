@@ -46,6 +46,8 @@ import org.springframework.data.repository.query.Param;
 public interface BucketRepository extends JpaRepository<BucketEntity, Long>, JpaSpecificationExecutor<BucketEntity>,
         QueryDslPredicateExecutor<BucketEntity> {
 
+    BucketEntity findOneByBucketName(String bucketName);
+
     List<BucketEntity> findByOwner(@Param("owner") String owner);
 
     List<BucketEntity> findByOwnerIn(List<String> owners);
@@ -57,13 +59,13 @@ public interface BucketRepository extends JpaRepository<BucketEntity, Long>, Jpa
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({ @QueryHint(name = "javax.persistence.lock.timeout", value = "5000") })
-    @Query(value = "SELECT bk FROM BucketEntity bk WHERE bk.id = ?1")
-    BucketEntity findBucketForUpdate(Long bucketId);
+    @Query(value = "SELECT bk FROM BucketEntity bk WHERE bk.bucketName = ?1")
+    BucketEntity findBucketForUpdate(String bucketName);
 
-    @Query(value = "SELECT bk FROM BucketEntity bk LEFT JOIN bk.catalogObjects cos WHERE cos.kind = ?1 OR bk.catalogObjects IS EMPTY GROUP BY bk")
+    @Query(value = "SELECT bk FROM BucketEntity bk LEFT JOIN bk.catalogObjects cos WHERE lower(cos.kind) LIKE lower(concat(?1, '%')) OR bk.catalogObjects IS EMPTY GROUP BY bk")
     List<BucketEntity> findContainingKind(String kind);
 
-    @Query(value = "SELECT bk FROM BucketEntity bk LEFT JOIN bk.catalogObjects cos WHERE bk.owner in ?1 AND (cos.kind = ?2 OR bk.catalogObjects IS EMPTY) GROUP BY bk")
+    @Query(value = "SELECT bk FROM BucketEntity bk LEFT JOIN bk.catalogObjects cos WHERE bk.owner in ?1 AND (lower(cos.kind) LIKE lower(concat(?2, '%')) OR bk.catalogObjects IS EMPTY) GROUP BY bk")
     List<BucketEntity> findByOwnerIsInContainingKind(List<String> owners, String kind);
 
 }

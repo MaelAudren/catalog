@@ -27,7 +27,6 @@ package org.ow2.proactive.catalog.service;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
@@ -35,10 +34,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.ow2.proactive.catalog.Application;
 import org.ow2.proactive.catalog.IntegrationTestConfig;
 import org.ow2.proactive.catalog.dto.BucketMetadata;
-import org.ow2.proactive.catalog.dto.CatalogObjectMetadata;
 import org.ow2.proactive.catalog.dto.Metadata;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.ActiveProfiles;
@@ -74,7 +71,7 @@ public class BucketServiceIntegrationTest {
         keyValues = Collections.singletonList(new Metadata("key", "value", "type"));
         assertThat(bucket).isNotNull();
         assertThat(bucket.getOwner()).isEqualTo("BucketServiceIntegrationTest");
-        assertThat(bucket.getMetaDataId()).isNotNull();
+        assertThat(bucket.getName()).isNotNull();
     }
 
     @After
@@ -89,46 +86,9 @@ public class BucketServiceIntegrationTest {
     }
 
     @Test
-    public void testPopulateCatalogEmpty() throws Exception {
-        bucketService.populateCatalog(new String[] {}, DEFAULT_OBJECTS_FOLDER, RAW_OBJECTS_FOLDER);
-        List<BucketMetadata> bucketMetadataList = bucketService.listBuckets((String) null, null);
-        assertThat(bucketMetadataList).hasSize(1);
-    }
-
-    /*
-     * Create 3 buckets, check that the buckets exists
-     * 1 bucket is empty
-     */
-    @Test
-    public void testPopulateCatalogCheckBucketsCreation() throws Exception {
-
-        final String[] buckets = { "Examples", "Cloud-automation", "Toto" };
-        bucketService.populateCatalog(buckets, DEFAULT_OBJECTS_FOLDER, RAW_OBJECTS_FOLDER);
-
-        // verify that all buckets have been created in the Catalog
-        List<BucketMetadata> bucketMetadataList = bucketService.listBuckets((String) null, null);
-
-        bucketMetadataList.forEach(bucket -> {
-            String name = bucket.getName();
-            Long id = bucket.getMetaDataId();
-            int nbWorkflows = 0;
-            String[] workflows = new File(Application.class.getResource(DEFAULT_OBJECTS_FOLDER).getPath() +
-                                          File.separator + name).list();
-            if (workflows != null) {
-                nbWorkflows = workflows.length;
-            }
-
-            List<CatalogObjectMetadata> catalogObjectMetadataList = catalogObjectService.listCatalogObjects(id);
-
-            assertThat(catalogObjectMetadataList).hasSize(nbWorkflows);
-        });
-
-    }
-
-    @Test
     public void testDeleteEmptyBucket() {
         bucket = bucketService.createBucket("bucketnotempty", "emptyBucketTest");
-        catalogObjectService.createCatalogObject(bucket.getMetaDataId(),
+        catalogObjectService.createCatalogObject(bucket.getName(),
                                                  "catalog",
                                                  "object",
                                                  "commit message",
@@ -151,31 +111,95 @@ public class BucketServiceIntegrationTest {
     public void testGetBucket() {
         List<BucketMetadata> bucketMetadatas = bucketService.listBuckets("BucketServiceIntegrationTest", null);
         assertThat(bucketMetadatas).hasSize(1);
-        BucketMetadata bucketMetadata = bucketService.getBucketMetadata(bucket.getMetaDataId());
+        BucketMetadata bucketMetadata = bucketService.getBucketMetadata(bucket.getName());
         assertThat(bucketMetadata).isNotNull();
         assertThat(bucketMetadata.getOwner()).isEqualTo(bucket.getOwner());
-        assertThat(bucketMetadata.getMetaDataId()).isEqualTo(bucket.getMetaDataId());
+        assertThat(bucketMetadata.getName()).isEqualTo(bucket.getName());
     }
 
     @Test
-    public void testListBucket() {
-        bucket = bucketService.createBucket("owner", "bucket2");
-        catalogObjectService.createCatalogObject(bucket.getMetaDataId(),
+    public void testListBucketByOwnerAndCaseInsensitiveByKind() {
+        bucket = bucketService.createBucket("bucket-workflow", "owner");
+        catalogObjectService.createCatalogObject(bucket.getName(),
                                                  "catalog",
-                                                 "workflow",
+                                                 "WORKFLOW",
                                                  "commit message",
                                                  "application/xml",
                                                  keyValues,
                                                  null);
 
-        List<BucketMetadata> bucketMetadatas = bucketService.listBuckets("bucket2", null);
+        List<BucketMetadata> bucketMetadatas = bucketService.listBuckets("owner", null);
         assertThat(bucketMetadatas).hasSize(1);
         assertThat(bucketMetadatas.get(0).getOwner()).isEqualTo(bucket.getOwner());
-        assertThat(bucketMetadatas.get(0).getMetaDataId()).isEqualTo(bucket.getMetaDataId());
+        assertThat(bucketMetadatas.get(0).getName()).isEqualTo(bucket.getName());
 
         bucketMetadatas = bucketService.listBuckets((String) null, "workflow");
         assertThat(bucketMetadatas).hasSize(2);
-        assertThat(bucketMetadatas.get(1).getMetaDataId()).isEqualTo(bucket.getMetaDataId());
+        assertThat(bucketMetadatas.get(1).getName()).isEqualTo(bucket.getName());
+    }
+
+    @Test
+    public void testListBucketsCaseInsensitiveFilterByKindPrefix() {
+        //create bucket with kind object workflow inside
+        bucket = bucketService.createBucket("bucket-workflow", "owner");
+        catalogObjectService.createCatalogObject(bucket.getName(),
+                                                 "catalog",
+                                                 "Workflow",
+                                                 "commit message",
+                                                 "application/xml",
+                                                 keyValues,
+                                                 null);
+
+        //create bucket with kind object workflow/standard inside
+        BucketMetadata bucketWfStandard = bucketService.createBucket("bucket-wf-standard", "owner");
+        catalogObjectService.createCatalogObject(bucketWfStandard.getName(),
+                                                 "catalog",
+                                                 "WorkFlow/Standard",
+                                                 "commit message",
+                                                 "application/xml",
+                                                 keyValues,
+                                                 null);
+
+        //create bucket with kind object workflow/pca inside
+        BucketMetadata bucketWfPCA = bucketService.createBucket("bucket-wf-pca", "owner");
+        catalogObjectService.createCatalogObject(bucketWfPCA.getName(),
+                                                 "catalog",
+                                                 "workflow/PCA",
+                                                 "commit message",
+                                                 "application/xml",
+                                                 keyValues,
+                                                 null);
+
+        //create bucket with kind object not-workflow inside
+        BucketMetadata bucketNotWf = bucketService.createBucket("bucket-not-workflow", "different-owner");
+        catalogObjectService.createCatalogObject(bucketNotWf.getName(),
+                                                 "catalog",
+                                                 "not-workflow",
+                                                 "commit message",
+                                                 "application/xml",
+                                                 keyValues,
+                                                 null);
+
+        // test filtering by owner
+        List<BucketMetadata> bucketMetadatas = bucketService.listBuckets("owner", null);
+        assertThat(bucketMetadatas).hasSize(3);
+        assertThat(bucketMetadatas.get(0).getOwner()).isEqualTo(bucket.getOwner());
+        assertThat(bucketMetadatas.get(0).getName()).isEqualTo(bucket.getName());
+
+        //we expect to get only workflow/pca bucket and empty bucket
+        List<BucketMetadata> bucketMetadatasWfPCA = bucketService.listBuckets((String) null, "Workflow/pca");
+        assertThat(bucketMetadatasWfPCA).hasSize(2);
+        assertThat(bucketMetadatasWfPCA.get(1).getName()).isEqualTo(bucketWfPCA.getName());
+
+        //we expect to get only workflow/standard bucket and empty bucket
+        List<BucketMetadata> bucketMetadatasWfStandard = bucketService.listBuckets((String) null, "workflow/STANDARD");
+        assertThat(bucketMetadatasWfStandard).hasSize(2);
+        assertThat(bucketMetadatasWfStandard.get(1).getName()).isEqualTo(bucketWfStandard.getName());
+
+        //we expect to get all workflow kind bucket and empty bucket
+        List<BucketMetadata> bucketMetadatasWorkflows = bucketService.listBuckets((String) null, "WORKFLOW");
+        assertThat(bucketMetadatasWorkflows).hasSize(4);
+        assertThat(bucketMetadatasWorkflows.get(1).getName()).isEqualTo(bucket.getName());
     }
 
 }
