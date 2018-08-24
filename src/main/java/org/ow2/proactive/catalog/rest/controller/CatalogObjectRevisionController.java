@@ -90,8 +90,8 @@ public class CatalogObjectRevisionController {
     @ResponseStatus(HttpStatus.CREATED)
     public CatalogObjectMetadata create(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable Long bucketId, @PathVariable String name,
-            @ApiParam(value = "The commit message of the CatalogRawObject Revision") @RequestParam String commitMessage,
+            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name,
+            @ApiParam(value = "The commit message of the CatalogRawObject Revision") @RequestParam("commitMessage") String commitMessage,
             @RequestPart(value = "file") MultipartFile file)
             throws IOException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
@@ -115,7 +115,8 @@ public class CatalogObjectRevisionController {
     @RequestMapping(value = "/{commitTime}", method = GET)
     public ResponseEntity<CatalogObjectMetadata> get(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable Long bucketId, @PathVariable String name, @PathVariable long commitTime)
+            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name,
+            @PathVariable("commitTime") long commitTime)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
@@ -143,7 +144,8 @@ public class CatalogObjectRevisionController {
     @RequestMapping(value = "/{commitTime}/raw", method = GET)
     public ResponseEntity<InputStreamResource> getRaw(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable Long bucketId, @PathVariable String name, @PathVariable long commitTime)
+            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name,
+            @PathVariable("commitTime") long commitTime)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);
@@ -176,7 +178,7 @@ public class CatalogObjectRevisionController {
     @RequestMapping(method = GET)
     public List<CatalogObjectMetadata> list(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable Long bucketId, @PathVariable String name)
+            @PathVariable("bucketId") Long bucketId, @PathVariable("name") String name)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdAndThrowIfDeclined(sessionId, bucketId);

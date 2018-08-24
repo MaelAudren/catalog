@@ -14,6 +14,7 @@ buildscript {
         classpath 'com.diffplug.gradle.spotless:spotless:2.4.0'
         classpath 'org.ow2.proactive:coding-rules:1.0.0'
         classpath 'org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.5.0'
+        classpath 'com.bmuschko:gradle-clover-plugin:2.2.1'
     }
 
     dependencies {
@@ -32,6 +33,7 @@ plugins {
     id 'war'
 }
 
+apply plugin: 'com.bmuschko.clover'
 apply plugin: 'spring-boot'
 apply plugin: 'com.github.kt3k.coveralls'
 apply from: "$rootDir/gradle/ext/coding-format.gradle"
@@ -117,6 +119,7 @@ war {
 
 dependencies {
     antlr 'org.antlr:antlr4:4.5.2'
+    clover 'org.openclover:clover:4.2.0'
 
     compile 'commons-fileupload:commons-fileupload:1.3.1'
     compile 'org.apache.commons:commons-lang3:3.5'
@@ -268,4 +271,13 @@ idea {
                 configurations.integrationTestRuntime
         ]
     }
+}
+
+clover {
+
+       report {
+           html = true
+           pdf = true
+       }
+
 }
