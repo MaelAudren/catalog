@@ -23,33 +23,34 @@
  * If needed, contact us to obtain a release under GPL Version 2 or 3
  * or a different license than the AGPL.
  */
-package org.ow2.proactive.catalog.util;
+package org.ow2.proactive.catalog.util.name.validator;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.springframework.stereotype.Component;
-
 
 /**
  * @author ActiveEon Team
- * @since 11/13/2017
+ * @since 8/2/2018
  */
-@Component
-public class BucketNameValidator {
-    protected final static String VALID_BUCKET_NAME_PATTERN = "[a-z][a-z0-9-]{1,61}[a-z0-9]";
+public abstract class NameValidator {
 
-    private final static Pattern validBucketNamePattern = Pattern.compile(VALID_BUCKET_NAME_PATTERN);
+    protected String namePattern;
+
+    private Pattern validNamePattern;
+
+    public NameValidator(String namePattern) {
+        this.namePattern = namePattern;
+        validNamePattern = Pattern.compile(namePattern);
+    }
 
     /**
-     * According to this check: the bucket name can be between 3 and 63 characters long, and can contain only lower-case characters, numbers, and dashes.
-     A bucket name must start with a lowercase letter and cannot terminate with a dash.
-     *
-     * @param bucketNameForCheck
-     * @return true result if bucket name is valid
+    * Please check the validator pattern in the specific class implementation of this abstract class
+     * @param nameForCheck
+     * @return true result if name is valid
      */
-    public boolean checkBucketName(String bucketNameForCheck) {
-        Matcher matcher = validBucketNamePattern.matcher(bucketNameForCheck);
+    public boolean isValid(String nameForCheck) {
+        Matcher matcher = validNamePattern.matcher(nameForCheck);
         return matcher.matches();
     }
 }
