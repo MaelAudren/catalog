@@ -164,7 +164,7 @@ public class CatalogObjectController {
     @ResponseStatus(HttpStatus.OK)
     public CatalogObjectMetadata updateObjectMetadata(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name,
+            @PathVariable("bucketName") String bucketName, @PathVariable("name") String name,
             @ApiParam(value = "The new kind of an object", required = false) @RequestParam(value = "kind", required = false) Optional<String> kind,
             @ApiParam(value = "The new content type of an object - MIME type", required = false) @RequestParam(value = "contentType", required = false) Optional<String> contentType)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {

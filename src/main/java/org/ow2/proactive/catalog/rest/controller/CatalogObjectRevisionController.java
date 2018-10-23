@@ -189,7 +189,7 @@ public class CatalogObjectRevisionController {
     @ResponseStatus(HttpStatus.OK)
     public CatalogObjectMetadata restore(
             @ApiParam(value = "sessionID", required = false) @RequestHeader(value = "sessionID", required = false) String sessionId,
-            @PathVariable String bucketName, @PathVariable String name, @PathVariable Long commitTimeRaw)
+            @PathVariable(value = "bucketName") String bucketName, @PathVariable(value = "name") String name, @PathVariable("commitTimeRaw") Long commitTimeRaw)
             throws UnsupportedEncodingException, NotAuthenticatedException, AccessDeniedException {
         if (sessionIdRequired) {
             restApiAccessService.checkAccessBySessionIdForBucketAndThrowIfDeclined(sessionId, bucketName);
